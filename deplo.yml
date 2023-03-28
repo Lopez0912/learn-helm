@@ -1,0 +1,58 @@
+trigger:
+- master
+resources:
+- repo: self
+
+variables:
+  group: 'creating_multistage_pipeline'
+  microName: 'app-node'
+  dockerRegistryServiceConnection: 'test01'
+  containerRegistry: 'acrglasshive.azurecr.io'
+  dockerfilePath: '$(Build.SourcesDirectory)/Dockerfile'
+  vmImageName: 'ubuntu-latest'
+  version: $(Build.BuildId)
+  k8s.namespace: 'default'
+  k8s.rgName: 'rg-microservices-test-k8s'
+  k8s.clusterName: 'aks-microservices-test-k8s'
+  
+stages:
+- stage: buildAndPush
+  displayName: Build and push stage
+  jobs:
+  - job: Build
+    displayName: Build
+    pool:
+      vmImage: $(vmImageName)
+    steps:
+    - task: Docker@2
+      displayName: Build and push an image to container registry
+      inputs:
+        command: buildAndPush
+        repository: 'lopez0912/$(microName)'
+        dockerfile: $(dockerfilePath)
+        containerRegistry: $(dockerRegistryServiceConnection)
+        tags: |
+          $(version)
+          latest
+
+- stage: preProdTest
+  displayName: 'Green Deployment'
+  jobs:
+  - job: 'green_deployment'
+    displayName: 'Pre-prod Deploy'
+    pool:
+      vmImage: $(vmImageName)
+    steps:
+        - task: HelmDeploy@0   
+          displayName: 'Green deployment for the current build'
+          inputs:
+            connectionType: 'Azure Resource Manager'
+            azureSubscription: 'Honey(1)(af00cac2-247e-40e9-ab66-ec1a9a644d7b)'
+            azureResourceGroup: '$(k8s.rgName)'
+            kubernetesCluster: '$(k8s.clusterName)'
+            namespace: '$(k8s.namespace)'
+            command: 'install'
+            chartType: 'FilePath'
+            chartPath: 'nodechart'
+            releaseName: '$(microName)-$(version)'
+            arguments: '--set micro.name=$(microName)-$(version) --set ingress.name=$(microName)-$(version) --wait'
